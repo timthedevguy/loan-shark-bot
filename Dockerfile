@@ -1,33 +1,20 @@
-# ---- Builder Stage ----
-FROM python:3.12-alpine AS builder
+FROM python:3.12-slim-bookworm
 
-WORKDIR /build
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE 1
 
-# gcc + musl-dev needed to compile native extensions (tortoise-orm[accel] pulls in ciso8601/uvloop)
-RUN apk add --no-cache gcc musl-dev libffi-dev
-
-COPY pyproject.toml poetry.lock ./
-
-# Export pinned requirements then install into a prefix we can copy cleanly
-# poetry-plugin-export is required for `poetry export` in Poetry 2.x (no longer bundled)
-RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0" "poetry-plugin-export" \
-    && poetry export --without-hashes -f requirements.txt -o requirements.txt \
-    && pip install --no-cache-dir --prefix=/deps -r requirements.txt
-
-
-# ---- Final Stage ----
-FROM python:3.12-alpine
-
-WORKDIR /app
-
-# Copy compiled packages from builder
-COPY --from=builder /deps /usr/local
-
-# Copy only the application source (no tests, no dev files)
+RUN mkdir /code
+WORKDIR /code
 COPY cogs/       ./cogs/
-COPY database.py models.py utils.py start_shark.py ./
+COPY database.py models.py utils.py start_shark.py poetry.lock pyproject.toml ./
 
-# Non-root user + persistent data directory for SQLite
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends gcc musl-dev libffi-dev \
+    && pip install --upgrade pip \
+    && pip install --no-cache-dir poetry \
+    && poetry config virtualenvs.create false \
+    && poetry install --no-interaction --without dev
+
 RUN addgroup -S shark \
     && adduser -S shark -G shark \
     && mkdir -p /data \
