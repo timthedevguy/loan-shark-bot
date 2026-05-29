@@ -100,7 +100,7 @@ class LoanCommands(commands.Cog):
                     name="Description", value=existing_loan.description, inline=False
                 )
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
         else:
             # Create new loan
             loan = await Loan.create(
@@ -124,7 +124,7 @@ class LoanCommands(commands.Cog):
             if description:
                 embed.add_field(name="Description", value=description, inline=False)
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="repay", description="Record a loan repayment")
     @app_commands.describe(
@@ -206,7 +206,7 @@ class LoanCommands(commands.Cog):
         if note:
             embed.add_field(name="Note", value=note, inline=False)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="myloans", description="View your loans (given and received)")
     async def my_loans(self, interaction: discord.Interaction):
@@ -376,7 +376,7 @@ class LoanCommands(commands.Cog):
             name="Amount", value=config.format_currency(float(loan.amount)), inline=True
         )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot):

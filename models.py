@@ -23,7 +23,7 @@ class Config(Model):
 
     def format_currency(self, amount: float) -> str:
         """Format an amount with the configured prefix/suffix"""
-        formatted = f"{amount:.2f}"
+        formatted = f"{amount:,.2f}"
         if self.currency_prefix:
             formatted = f"{self.currency_prefix}{formatted}"
         if self.currency_suffix:
