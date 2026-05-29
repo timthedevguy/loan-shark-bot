@@ -15,13 +15,6 @@ RUN apt-get update -y \
     && poetry config virtualenvs.create false \
     && poetry install --no-interaction --without dev
 
-RUN addgroup -S shark \
-    && adduser -S shark -G shark \
-    && mkdir -p /data \
-    && chown shark:shark /data
-
-USER shark
-
 # Store the SQLite file on the mounted volume so it survives container restarts
 ENV DATABASE_URL=sqlite:////data/db.sqlite3
 
