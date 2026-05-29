@@ -9,8 +9,9 @@ RUN apk add --no-cache gcc musl-dev libffi-dev
 COPY pyproject.toml poetry.lock ./
 
 # Export pinned requirements then install into a prefix we can copy cleanly
-RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0" \
-    && poetry export --without dev --without-hashes -f requirements.txt -o requirements.txt \
+# poetry-plugin-export is required for `poetry export` in Poetry 2.x (no longer bundled)
+RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0" "poetry-plugin-export" \
+    && poetry export --without-hashes -f requirements.txt -o requirements.txt \
     && pip install --no-cache-dir --prefix=/deps -r requirements.txt
 
 
