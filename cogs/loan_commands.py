@@ -104,6 +104,7 @@ class LoanCommands(commands.Cog):
         else:
             # Create new loan
             loan = await Loan.create(
+                guild_id=interaction.guild.id,
                 lender=lender,
                 borrower=borrower,
                 amount=Decimal(str(amount)),
@@ -342,7 +343,7 @@ class LoanCommands(commands.Cog):
         """List all loans — admin only"""
         await interaction.response.defer(ephemeral=True)
 
-        loans = await Loan.all().prefetch_related("lender", "borrower")
+        loans = await Loan.filter(guild_id=interaction.guild.id).prefetch_related("lender", "borrower")
         if not include_paid:
             loans = [l for l in loans if not l.is_paid]
 

@@ -53,6 +53,7 @@ class User(Model):
 class Loan(Model):
     """Represents a loan between two users"""
     id = fields.IntField(pk=True)
+    guild_id = fields.BigIntField(null=True, index=True)
     lender = fields.ForeignKeyField("models.User", related_name="loans_given")
     borrower = fields.ForeignKeyField("models.User", related_name="loans_received")
     amount = fields.DecimalField(max_digits=12, decimal_places=2)
