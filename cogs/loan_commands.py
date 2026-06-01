@@ -335,6 +335,76 @@ class LoanCommands(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="allloans", description="List all loans on the server (Admin only)")
+    @app_commands.describe(include_paid="Include loans that have already been paid off (default: False)")
+    @app_commands.default_permissions(administrator=True)
+    async def all_loans(self, interaction: discord.Interaction, include_paid: bool = False):
+        """List all loans — admin only"""
+        await interaction.response.defer(ephemeral=True)
+
+        loans = await Loan.all().prefetch_related("lender", "borrower")
+        if not include_paid:
+            loans = [l for l in loans if not l.is_paid]
+
+        config = await get_guild_config(interaction.guild.id)
+
+        if not loans:
+            status_note = "paid or unpaid" if include_paid else "unpaid"
+            await interaction.followup.send(f"📭 No {status_note} loans found.", ephemeral=True)
+            return
+
+        total_outstanding = sum(l.amount for l in loans if not l.is_paid)
+
+        embed = discord.Embed(
+            title="🗂️ All Loans" + (" (including paid)" if include_paid else ""),
+            description=f"**{len(loans)}** loan(s) found"
+            + (f" — Outstanding: {config.format_currency(float(total_outstanding))}" if total_outstanding else ""),
+            color=discord.Color.dark_gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        # Discord embed field value limit is 1024 chars; batch loans into chunks
+        chunk, chunk_lines = [], []
+        for loan in loans:
+            try:
+                lender_user = await self.bot.fetch_user(loan.lender.discord_id)
+                lender_str = lender_user.mention
+            except discord.NotFound:
+                lender_str = f"`{loan.lender.discord_id}`"
+            try:
+                borrower_user = await self.bot.fetch_user(loan.borrower.discord_id)
+                borrower_str = borrower_user.mention
+            except discord.NotFound:
+                borrower_str = f"`{loan.borrower.discord_id}`"
+
+            status = "✅" if loan.is_paid else "⏳"
+            line = (
+                f"{status} **#{loan.id}** {lender_str} → {borrower_str}: "
+                f"{config.format_currency(float(loan.amount))}"
+            )
+            chunk_lines.append(line)
+
+            # Flush chunk every 10 entries or when approaching field value limit
+            if len(chunk_lines) == 10:
+                embed.add_field(
+                    name=f"Loans {len(chunk) * 10 + 1}–{len(chunk) * 10 + len(chunk_lines)}",
+                    value="\n".join(chunk_lines),
+                    inline=False,
+                )
+                chunk.append(chunk_lines)
+                chunk_lines = []
+
+        if chunk_lines:
+            start = len(chunk) * 10 + 1
+            end = start + len(chunk_lines) - 1
+            embed.add_field(
+                name=f"Loans {start}–{end}",
+                value="\n".join(chunk_lines),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     @app_commands.command(name="markpaid", description="Mark a loan as fully paid")
     @app_commands.describe(loan_id="The ID of the loan to mark as paid")
     async def mark_paid(self, interaction: discord.Interaction, loan_id: int):
