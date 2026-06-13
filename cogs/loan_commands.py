@@ -381,7 +381,8 @@ class LoanCommands(commands.Cog):
             status = "✅" if loan.is_paid else "⏳"
             line = (
                 f"{status} **#{loan.id}** {lender_str} → {borrower_str}: "
-                f"{config.format_currency(float(loan.amount))}"
+                f"{config.format_currency(float(loan.amount))} "
+                f"*(created {loan.created_at.strftime('%Y-%m-%d')})*"
             )
             chunk_lines.append(line)
 
