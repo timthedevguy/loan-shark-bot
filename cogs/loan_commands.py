@@ -2,7 +2,7 @@
 Loan management commands for the Discord bot
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import discord
@@ -11,6 +11,110 @@ from discord.ext import commands
 
 from models import Loan, Transaction, User
 from utils import get_guild_config
+
+
+class DeleteLoanConfirmView(discord.ui.View):
+    """Confirmation prompt for /deleteloan — only the invoking admin can act on it"""
+
+    def __init__(self, loan: Loan, lender_str: str, borrower_str: str, amount_str: str, invoker_id: int):
+        super().__init__(timeout=30)
+        self.loan = loan
+        self.lender_str = lender_str
+        self.borrower_str = borrower_str
+        self.amount_str = amount_str
+        self.invoker_id = invoker_id
+        self.message: discord.InteractionMessage | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "❌ Only the admin who ran this command can respond to it!", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self):
+        if self.message:
+            try:
+                await self.message.edit(
+                    content="⌛ Confirmation timed out — loan was **not** deleted.", embed=None, view=None
+                )
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(label="Delete Loan", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await self.loan.delete()
+
+        embed = discord.Embed(
+            title="🗑️ Loan Deleted",
+            description=f"Loan #{self.loan.id} has been permanently deleted.",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Lender", value=self.lender_str, inline=True)
+        embed.add_field(name="Borrower", value=self.borrower_str, inline=True)
+        embed.add_field(name="Amount", value=self.amount_str, inline=True)
+
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(
+            content="Deletion cancelled — loan was **not** deleted.", embed=None, view=None
+        )
+
+
+class CleanupConfirmView(discord.ui.View):
+    """Confirmation prompt for /cleanup — only the invoking admin can act on it"""
+
+    def __init__(self, loans: list[Loan], cutoff_days: int, invoker_id: int):
+        super().__init__(timeout=30)
+        self.loans = loans
+        self.cutoff_days = cutoff_days
+        self.invoker_id = invoker_id
+        self.message: discord.InteractionMessage | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "❌ Only the admin who ran this command can respond to it!", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self):
+        if self.message:
+            try:
+                await self.message.edit(
+                    content="⌛ Confirmation timed out — no loans were deleted.", embed=None, view=None
+                )
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(label="Delete Loans", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        count = len(self.loans)
+        for loan in self.loans:
+            await loan.delete()
+
+        embed = discord.Embed(
+            title="🗑️ Cleanup Complete",
+            description=f"Deleted {count} paid loan(s) older than {self.cutoff_days} day(s).",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(
+            content="Cleanup cancelled — no loans were deleted.", embed=None, view=None
+        )
 
 
 class LoanCommands(commands.Cog):
@@ -50,9 +154,9 @@ class LoanCommands(commands.Cog):
         lender = await self.get_or_create_user(interaction.user)
         borrower = await self.get_or_create_user(member)
 
-        # Check for existing unpaid loan between these users
+        # Check for existing unpaid loan between these users in this guild
         existing_loan = await Loan.get_or_none(
-            lender=lender, borrower=borrower, is_paid=False
+            lender=lender, borrower=borrower, is_paid=False, guild_id=interaction.guild.id
         )
 
         # Get currency formatting
@@ -139,7 +243,7 @@ class LoanCommands(commands.Cog):
             await interaction.response.send_message("❌ Amount must be greater than 0!", ephemeral=True)
             return
 
-        loan = await Loan.get_or_none(id=loan_id).prefetch_related(
+        loan = await Loan.get_or_none(id=loan_id, guild_id=interaction.guild.id).prefetch_related(
             "lender", "borrower", "transactions"
         )
 
@@ -158,7 +262,7 @@ class LoanCommands(commands.Cog):
             await interaction.response.send_message("❌ This loan is already marked as paid!", ephemeral=True)
             return
 
-        transaction = await Transaction.create(
+        await Transaction.create(
             loan=loan, amount=Decimal(str(amount)), note=note
         )
 
@@ -214,11 +318,11 @@ class LoanCommands(commands.Cog):
         """View all loans for the current user"""
         user = await self.get_or_create_user(interaction.user)
 
-        loans_given = await Loan.filter(lender=user, is_paid=False).prefetch_related(
-            "borrower"
-        )
+        loans_given = await Loan.filter(
+            lender=user, is_paid=False, guild_id=interaction.guild.id
+        ).prefetch_related("borrower")
         loans_received = await Loan.filter(
-            borrower=user, is_paid=False
+            borrower=user, is_paid=False, guild_id=interaction.guild.id
         ).prefetch_related("lender")
 
         # Get currency formatting
@@ -274,7 +378,7 @@ class LoanCommands(commands.Cog):
     @app_commands.describe(loan_id="The ID of the loan to view")
     async def loan_details(self, interaction: discord.Interaction, loan_id: int):
         """View details of a specific loan"""
-        loan = await Loan.get_or_none(id=loan_id).prefetch_related(
+        loan = await Loan.get_or_none(id=loan_id, guild_id=interaction.guild.id).prefetch_related(
             "lender", "borrower", "transactions"
         )
 
@@ -345,7 +449,7 @@ class LoanCommands(commands.Cog):
 
         loans = await Loan.filter(guild_id=interaction.guild.id).prefetch_related("lender", "borrower")
         if not include_paid:
-            loans = [l for l in loans if not l.is_paid]
+            loans = [loan for loan in loans if not loan.is_paid]
 
         config = await get_guild_config(interaction.guild.id)
 
@@ -354,7 +458,7 @@ class LoanCommands(commands.Cog):
             await interaction.followup.send(f"📭 No {status_note} loans found.", ephemeral=True)
             return
 
-        total_outstanding = sum(l.amount for l in loans if not l.is_paid)
+        total_outstanding = sum(loan.amount for loan in loans if not loan.is_paid)
 
         embed = discord.Embed(
             title="🗂️ All Loans" + (" (including paid)" if include_paid else ""),
@@ -411,7 +515,7 @@ class LoanCommands(commands.Cog):
     @app_commands.describe(loan_id="The ID of the loan to mark as paid")
     async def mark_paid(self, interaction: discord.Interaction, loan_id: int):
         """Mark a loan as fully paid"""
-        loan = await Loan.get_or_none(id=loan_id).prefetch_related("lender", "borrower")
+        loan = await Loan.get_or_none(id=loan_id, guild_id=interaction.guild.id).prefetch_related("lender", "borrower")
 
         if not loan:
             await interaction.response.send_message(f"❌ Loan #{loan_id} not found!", ephemeral=True)
@@ -449,6 +553,140 @@ class LoanCommands(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="deleteloan", description="Permanently delete a loan (Admin only)")
+    @app_commands.describe(loan_id="The ID of the loan to delete")
+    @app_commands.default_permissions(administrator=True)
+    async def delete_loan(self, interaction: discord.Interaction, loan_id: int):
+        """Permanently delete a loan and its transaction history — admin only"""
+        loan = await Loan.get_or_none(id=loan_id, guild_id=interaction.guild.id).prefetch_related(
+            "lender", "borrower"
+        )
+
+        if not loan:
+            await interaction.response.send_message(f"❌ Loan #{loan_id} not found!", ephemeral=True)
+            return
+
+        try:
+            lender_str = (await self.bot.fetch_user(loan.lender.discord_id)).mention
+        except discord.NotFound:
+            lender_str = f"`{loan.lender.discord_id}`"
+        try:
+            borrower_str = (await self.bot.fetch_user(loan.borrower.discord_id)).mention
+        except discord.NotFound:
+            borrower_str = f"`{loan.borrower.discord_id}`"
+
+        config = await get_guild_config(interaction.guild.id)
+        amount_str = config.format_currency(float(loan.amount))
+        transaction_count = await Transaction.filter(loan=loan).count()
+
+        embed = discord.Embed(
+            title="⚠️ Confirm Loan Deletion",
+            description=f"Are you sure you want to permanently delete loan #{loan.id}? This cannot be undone.",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Lender", value=lender_str, inline=True)
+        embed.add_field(name="Borrower", value=borrower_str, inline=True)
+        embed.add_field(name="Amount", value=amount_str, inline=True)
+        embed.add_field(
+            name="Status", value="✅ Paid" if loan.is_paid else "⏳ Unpaid", inline=True
+        )
+        if transaction_count:
+            embed.add_field(
+                name="Payment Records",
+                value=f"{transaction_count} record(s) will also be deleted",
+                inline=True,
+            )
+
+        view = DeleteLoanConfirmView(loan, lender_str, borrower_str, amount_str, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.message = await interaction.original_response()
+
+    @app_commands.command(name="cleanup", description="Delete paid loans older than a number of days (Admin only)")
+    @app_commands.describe(days="Delete paid loans that were paid off more than this many days ago")
+    @app_commands.default_permissions(administrator=True)
+    async def cleanup(self, interaction: discord.Interaction, days: app_commands.Range[int, 1]):
+        """Bulk-delete paid loans past a retention window — admin only"""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        loans = await Loan.filter(
+            guild_id=interaction.guild.id, is_paid=True, paid_at__lt=cutoff
+        ).prefetch_related("lender", "borrower")
+
+        if not loans:
+            await interaction.response.send_message(
+                f"📭 No paid loans older than {days} day(s) found.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="⚠️ Confirm Cleanup",
+            description=(
+                f"**{len(loans)}** paid loan(s) older than {days} day(s) will be permanently deleted. "
+                "This cannot be undone."
+            ),
+            color=discord.Color.orange(),
+        )
+
+        view = CleanupConfirmView(loans, days, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.message = await interaction.original_response()
+
+    @app_commands.command(name="leaderboard", description="Rank users by number of loans lent (Admin only)")
+    @app_commands.describe(days="Only count loans created within this many days")
+    @app_commands.default_permissions(administrator=True)
+    async def leaderboard(self, interaction: discord.Interaction, days: app_commands.Range[int, 1]):
+        """Rank lenders by number of loans created in the last N days — admin only"""
+        await interaction.response.defer(ephemeral=True)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        loans = await Loan.filter(
+            guild_id=interaction.guild.id, created_at__gte=cutoff
+        ).prefetch_related("lender")
+
+        if not loans:
+            await interaction.followup.send(
+                f"📭 No loans lent in the last {days} day(s).", ephemeral=True
+            )
+            return
+
+        counts: dict[int, int] = {}
+        lenders: dict[int, User] = {}
+        for loan in loans:
+            lender_id = loan.lender.id
+            counts[lender_id] = counts.get(lender_id, 0) + 1
+            lenders[lender_id] = loan.lender
+
+        ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+
+        medals = ["🥇", "🥈", "🥉"]
+        lines = []
+        for rank, (lender_id, count) in enumerate(ranked):
+            lender = lenders[lender_id]
+            try:
+                name = (await self.bot.fetch_user(lender.discord_id)).mention
+            except discord.NotFound:
+                name = f"`{lender.discord_id}`"
+            prefix = medals[rank] if rank < len(medals) else f"`#{rank + 1}`"
+            lines.append(f"{prefix} {name} — {count} loan(s) lent")
+
+        embed = discord.Embed(
+            title="🏆 Lending Leaderboard",
+            description=f"Loans lent in the last {days} day(s), most to least",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        # Discord embed field value limit is 1024 chars; batch entries into chunks
+        for i in range(0, len(lines), 10):
+            chunk = lines[i:i + 10]
+            embed.add_field(
+                name=f"Rank {i + 1}–{i + len(chunk)}",
+                value="\n".join(chunk),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot):

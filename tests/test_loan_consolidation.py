@@ -2,6 +2,14 @@
 Test script for loan consolidation feature
 """
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DATABASE_URL", "sqlite://tests/db.sqlite3")
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from database import init_db, close_db
 from models import User, Loan
 from decimal import Decimal
@@ -12,6 +20,12 @@ async def test_loan_consolidation():
     print("=" * 60)
     print("LOAN CONSOLIDATION FEATURE TEST")
     print("=" * 60)
+
+    lender = None
+    borrower = None
+    loan1 = None
+    loan2 = None
+    loan3 = None
 
     try:
         # Initialize database
@@ -120,20 +134,49 @@ async def test_loan_consolidation():
         assert len(unpaid_by_original_borrower) == 1, "Should have 1 loan in reverse direction"
         print(f"  ✓ Lender→Borrower unpaid: {len(unpaid_by_original_lender)}")
         print(f"  ✓ Borrower→Lender unpaid: {len(unpaid_by_original_borrower)}")
-        print(f"  ✓ Directions kept separate ✓")
+        print("  ✓ Directions kept separate ✓")
 
-        # Cleanup
-        print("\n[CLEANUP] Removing test data...")
-        await loan1.delete()
-        await loan2.delete()
-        await loan3.delete()
-        await lender.delete()
-        await borrower.delete()
-        print("  ✓ Test data cleaned up")
+        # Test 7: Guild isolation — same pair, different guilds, must NOT consolidate
+        print("\n[TEST 7] Testing guild isolation...")
+        guild_a = 1111
+        guild_b = 2222
 
-        # Close database
-        await close_db()
-        print("  ✓ Database closed")
+        guild_a_loan = await Loan.create(
+            lender=lender,
+            borrower=borrower,
+            amount=Decimal("200.00"),
+            description="Guild A loan",
+            guild_id=guild_a,
+        )
+        guild_b_loan = await Loan.create(
+            lender=lender,
+            borrower=borrower,
+            amount=Decimal("300.00"),
+            description="Guild B loan",
+            guild_id=guild_b,
+        )
+
+        # The consolidation lookup used by /lend must be scoped to guild_id
+        existing_in_a = await Loan.get_or_none(
+            lender=lender, borrower=borrower, is_paid=False, guild_id=guild_a
+        )
+        existing_in_b = await Loan.get_or_none(
+            lender=lender, borrower=borrower, is_paid=False, guild_id=guild_b
+        )
+        assert existing_in_a is not None and existing_in_a.id == guild_a_loan.id, \
+            "Guild A lookup should only find the Guild A loan"
+        assert existing_in_b is not None and existing_in_b.id == guild_b_loan.id, \
+            "Guild B lookup should only find the Guild B loan"
+        assert existing_in_a.id != existing_in_b.id, "Loans in different guilds must stay separate"
+
+        # A loan from one guild must not be reachable by ID from another guild
+        cross_guild_lookup = await Loan.get_or_none(id=guild_a_loan.id, guild_id=guild_b)
+        assert cross_guild_lookup is None, "Guild A's loan must not be visible under Guild B's guild_id"
+        print(f"  ✓ Guild A loan #{guild_a_loan.id} and Guild B loan #{guild_b_loan.id} kept separate")
+        print("  ✓ Cross-guild lookup by ID correctly returns nothing")
+
+        await guild_a_loan.delete()
+        await guild_b_loan.delete()
 
         print("\n" + "=" * 60)
         print("✅ ALL LOAN CONSOLIDATION TESTS PASSED!")
@@ -144,6 +187,7 @@ async def test_loan_consolidation():
         print("  • Each person appears once in !myloans")
         print("  • After payoff → New loan starts fresh")
         print("  • Reverse direction → Kept separate")
+        print("  • Different guilds → Kept separate")
 
     except AssertionError as e:
         print(f"\n❌ Assertion failed: {e}")
@@ -154,7 +198,23 @@ async def test_loan_consolidation():
         import traceback
         traceback.print_exc()
 
+    finally:
+        # Clean up test data and always close the database, even on failure,
+        # so the script exits instead of hanging on a stale connection
+        print("\n[CLEANUP] Removing test data...")
+        if loan1:
+            await loan1.delete()
+        if loan2:
+            await loan2.delete()
+        if loan3:
+            await loan3.delete()
+        if lender:
+            await lender.delete()
+        if borrower:
+            await borrower.delete()
+        await close_db()
+        print("  ✓ Database closed")
+
 
 if __name__ == "__main__":
     asyncio.run(test_loan_consolidation())
-

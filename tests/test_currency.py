@@ -2,8 +2,16 @@
 Comprehensive test for currency customization feature
 """
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DATABASE_URL", "sqlite://tests/db.sqlite3")
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from database import init_db, close_db
-from models import Config, User, Loan
+from models import User, Loan
 from utils import get_guild_config, format_currency
 from decimal import Decimal
 
@@ -13,6 +21,12 @@ async def test_currency_feature():
     print("=" * 60)
     print("CURRENCY CUSTOMIZATION FEATURE - COMPREHENSIVE TEST")
     print("=" * 60)
+
+    config = None
+    config2 = None
+    loan = None
+    user1 = None
+    user2 = None
 
     try:
         # Initialize database
@@ -125,9 +139,9 @@ async def test_currency_feature():
         assert formatted == "$0.00"
         print(f"  ✓ Zero: {formatted}")
 
-        # Large amount
+        # Large amount — format_currency adds a thousands separator
         formatted = config.format_currency(999999.99)
-        assert formatted == "$999999.99"
+        assert formatted == "$999,999.99"
         print(f"  ✓ Large: {formatted}")
 
         # Small amount
@@ -146,19 +160,6 @@ async def test_currency_feature():
         assert formatted == "$500.00"
         print(f"  ✓ Helper function: {formatted}")
 
-        # Cleanup
-        print("\n[CLEANUP] Removing test data...")
-        await config.delete()
-        await config2.delete()
-        await loan.delete()
-        await user1.delete()
-        await user2.delete()
-        print("  ✓ Test data cleaned up")
-
-        # Close database
-        await close_db()
-        print("  ✓ Database closed")
-
         print("\n" + "=" * 60)
         print("✅ ALL CURRENCY FEATURE TESTS PASSED!")
         print("=" * 60)
@@ -173,7 +174,23 @@ async def test_currency_feature():
         import traceback
         traceback.print_exc()
 
+    finally:
+        # Clean up test data and always close the database, even on failure,
+        # so the script exits instead of hanging on a stale connection
+        print("\n[CLEANUP] Removing test data...")
+        if config:
+            await config.delete()
+        if config2:
+            await config2.delete()
+        if loan:
+            await loan.delete()
+        if user1:
+            await user1.delete()
+        if user2:
+            await user2.delete()
+        await close_db()
+        print("  ✓ Database closed")
+
 
 if __name__ == "__main__":
     asyncio.run(test_currency_feature())
-

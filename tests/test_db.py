@@ -2,13 +2,23 @@
 Test script to verify database initialization works correctly
 """
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DATABASE_URL", "sqlite://tests/db.sqlite3")
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from database import init_db, close_db
-from models import User, Loan, Config
+from models import User, Config
 
 
 async def test_database():
     """Test database operations"""
     print("Testing database initialization...")
+    config = None
+    user = None
 
     try:
         # Initialize database
@@ -45,15 +55,6 @@ async def test_database():
         found_user = await User.get(discord_id=987654321)
         print(f"✓ Found user: {found_user.username}")
 
-        # Clean up
-        await config.delete()
-        await user.delete()
-        print("✓ Cleaned up test data")
-
-        # Close database
-        await close_db()
-        print("✓ Database closed successfully")
-
         print("\n✅ All database tests passed!")
 
     except Exception as e:
@@ -61,8 +62,16 @@ async def test_database():
         import traceback
         traceback.print_exc()
 
+    finally:
+        # Clean up test data and always close the database, even on failure,
+        # so the script exits instead of hanging on a stale connection
+        if config:
+            await config.delete()
+        if user:
+            await user.delete()
+        await close_db()
+        print("✓ Database closed")
+
 
 if __name__ == "__main__":
     asyncio.run(test_database())
-
-

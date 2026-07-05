@@ -118,6 +118,26 @@ All commands use Discord's slash command interface (`/command`). All responses a
     - Example: `/markpaid loan_id:1`
     - **Privacy**: Response only visible to you
 
+- `/deleteloan loan_id:<id>`
+    - Permanently delete a loan and its payment history (Admin only)
+    - Example: `/deleteloan loan_id:1`
+    - Shows a confirmation prompt (Delete/Cancel buttons) before anything is deleted
+    - **Privacy**: Response only visible to you
+
+- `/cleanup days:<number>`
+    - Permanently delete all paid loans that were paid off more than `days` days ago (Admin only)
+    - Example: `/cleanup days:90` deletes paid loans with a `paid_at` older than 90 days
+    - `days` is required and must be at least 1
+    - Shows a confirmation prompt with the number of loans that will be deleted before anything is deleted
+    - **Privacy**: Response only visible to you
+
+- `/leaderboard days:<number>`
+    - Rank users by number of loans lent within the last `days` days, most to least (Admin only)
+    - Example: `/leaderboard days:30` ranks lenders by loans created in the last 30 days
+    - `days` is required and must be at least 1
+    - Counts loans by creation date regardless of paid/unpaid status
+    - **Privacy**: Response only visible to you
+
 ### Currency Commands
 
 - `/setcurrency`

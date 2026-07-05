@@ -3,7 +3,6 @@ Database models for the Loan Shark Bot using Tortoise ORM
 """
 from tortoise import fields
 from tortoise.models import Model
-from datetime import datetime
 
 
 class Config(Model):
