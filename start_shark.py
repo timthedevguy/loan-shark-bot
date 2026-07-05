@@ -7,6 +7,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import sentry_sdk
 from database import init_db, close_db
+from models import Config
 
 
 # Load environment variables
@@ -15,6 +16,11 @@ load_dotenv()
 # Get configuration from environment
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+GUILD_IDS = [
+    int(guild_id.strip())
+    for guild_id in os.getenv("GUILD_IDS", "").split(",")
+    if guild_id.strip()
+]
 
 # Initialize Sentry if DSN is provided
 if SENTRY_DSN:
@@ -52,12 +58,20 @@ async def setup_hook():
     """Called when the bot is setting up (before connecting to Discord)"""
     print("Initializing database...")
     await init_db()
+    guild_ids = await Config.all().values_list("guild_id", flat=True)
+    print(f"Guilds in database: {list(guild_ids)}")
     print("Loading cogs...")
     await load_cogs()
     print("Syncing slash commands...")
     try:
+        for guild_id in GUILD_IDS:
+            guild = discord.Object(id=guild_id)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"Synced {len(synced)} slash command(s) to guild {guild_id}")
+
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash command(s)")
+        print(f"Synced {len(synced)} slash command(s) globally")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 

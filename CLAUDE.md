@@ -44,8 +44,8 @@ There is no automated test suite (no pytest, no CI). [`tests/`](tests) contains 
 
 **Destructive-command confirmation**: `/deleteloan` and `/cleanup` don't act immediately — they show a preview embed with `discord.ui.View` Confirm/Cancel buttons (`DeleteLoanConfirmView` / `CleanupConfirmView` in [`cogs/loan_commands.py`](cogs/loan_commands.py)). Both views restrict button interaction to the admin who invoked the command via `interaction_check()`, and auto-expire after 30s via `on_timeout()`.
 
-**Slash command sync**: Commands are synced globally (not to a specific guild) in `setup_hook`. After adding or renaming commands, the sync happens automatically on next startup, but Discord can take up to an hour to propagate global changes. For faster testing during development, sync to a specific guild instead.
+**Slash command sync**: `setup_hook` in [`start_shark.py`](start_shark.py) syncs commands both globally and, if `GUILD_IDS` is set, to each listed guild via `copy_global_to()` + `sync(guild=...)`. Global sync happens automatically on next startup but can take up to an hour for Discord to propagate; guild-scoped syncs apply near-instantly, so any guild ID listed in `GUILD_IDS` sees new/renamed commands immediately on restart without waiting on the global rollout.
 
 ## Environment
 
-Copy `.env.example` to `.env`. Required variable: `DISCORD_TOKEN`. Optional: `DATABASE_URL` (defaults to `sqlite://db.sqlite3`), `SENTRY_DSN`.
+Copy `.env.example` to `.env`. Required variable: `DISCORD_TOKEN`. Optional: `DATABASE_URL` (defaults to `sqlite://db.sqlite3`), `SENTRY_DSN`, `GUILD_IDS` (comma-separated guild IDs for instant command sync).
