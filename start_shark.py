@@ -1,14 +1,16 @@
 """
 Loan Shark Bot - A Discord bot for managing loans between server members
 """
+
 import os
+
 import discord
+import sentry_sdk
 from discord.ext import commands
 from dotenv import load_dotenv
-import sentry_sdk
-from database import init_db, close_db
-from models import Config
 
+from database import close_db, init_db
+from models import Config
 
 # Load environment variables
 load_dotenv()
@@ -34,16 +36,13 @@ intents.members = True
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
-    help_command=None  # We'll use our custom help command
+    help_command=None,  # We'll use our custom help command
 )
 
 
 async def load_cogs():
     """Load all command cogs"""
-    cogs = [
-        "cogs.loan_commands",
-        "cogs.general_commands"
-    ]
+    cogs = ["cogs.loan_commands", "cogs.general_commands"]
 
     for cog in cogs:
         try:
@@ -70,8 +69,8 @@ async def setup_hook():
             synced = await bot.tree.sync(guild=guild)
             print(f"Synced {len(synced)} slash command(s) to guild {guild_id}")
 
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash command(s) globally")
+        # synced = await bot.tree.sync()
+        # print(f"Synced {len(synced)} slash command(s) globally")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
@@ -86,8 +85,7 @@ async def on_ready():
     # Set bot status
     await bot.change_presence(
         activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="your loans | /help"
+            type=discord.ActivityType.watching, name="your loans | /help"
         )
     )
     print("Bot is ready!")
@@ -99,13 +97,19 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("❌ Command not found! Use `/help` to see available commands.")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing required argument: `{error.param.name}`. Use `/help {ctx.command.name}` for usage info.")
+        await ctx.send(
+            f"❌ Missing required argument: `{error.param.name}`. Use `/help {ctx.command.name}` for usage info."
+        )
     elif isinstance(error, commands.BadArgument):
-        await ctx.send(f"❌ Invalid argument. Use `/help {ctx.command.name}` for usage info.")
+        await ctx.send(
+            f"❌ Invalid argument. Use `/help {ctx.command.name}` for usage info."
+        )
     elif isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ You don't have permission to use this command!")
     elif isinstance(error, commands.BotMissingPermissions):
-        await ctx.send("❌ I don't have the necessary permissions to execute this command!")
+        await ctx.send(
+            "❌ I don't have the necessary permissions to execute this command!"
+        )
     else:
         # Log unexpected errors
         print(f"Error in command {ctx.command}: {error}")
@@ -117,20 +121,35 @@ async def on_command_error(ctx, error):
 
 
 @bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+async def on_app_command_error(
+    interaction: discord.Interaction, error: discord.app_commands.AppCommandError
+):
     """Global error handler for slash commands"""
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ You don't have permission to use this command!", ephemeral=True
+        )
     elif isinstance(error, discord.app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"❌ This command is on cooldown. Try again in {error.retry_after:.1f}s", ephemeral=True)
+        await interaction.response.send_message(
+            f"❌ This command is on cooldown. Try again in {error.retry_after:.1f}s",
+            ephemeral=True,
+        )
     else:
         # Log unexpected errors
-        print(f"Error in app command {interaction.command.name if interaction.command else 'unknown'}: {error}")
+        print(
+            f"Error in app command {interaction.command.name if interaction.command else 'unknown'}: {error}"
+        )
 
         if interaction.response.is_done():
-            await interaction.followup.send("❌ An unexpected error occurred. Please try again later.", ephemeral=True)
+            await interaction.followup.send(
+                "❌ An unexpected error occurred. Please try again later.",
+                ephemeral=True,
+            )
         else:
-            await interaction.response.send_message("❌ An unexpected error occurred. Please try again later.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ An unexpected error occurred. Please try again later.",
+                ephemeral=True,
+            )
 
         # Send to Sentry if configured
         if SENTRY_DSN:
@@ -173,4 +192,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nBot stopped.")
-
